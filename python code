@@ -1,0 +1,162 @@
+
+
+pip install langdetect
+
+pip install langid
+
+pip install nltk
+
+import nltk
+nltk.download('punkt')
+
+import logging
+logging.basicConfig(level=logging.ERROR)
+
+!pip install hmmlearn==0.2.5
+
+import warnings
+warnings.filterwarnings("ignore", message="The default value of `n_init` will change from 10 to 'auto' in 1.4")
+
+import sys
+import warnings
+import nltk
+import pandas as pd
+from nltk.tokenize import word_tokenize
+from nltk.util import ngrams
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer
+from hmmlearn import hmm
+
+# Suppress warnings
+if not sys.warnoptions:
+    warnings.simplefilter("ignore")
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)
+
+
+languages = pd.read_csv('/content/Language Detection.csv')
+
+# Split the data into training and testing sets
+train_data, test_data = train_test_split(languages, test_size=0.2)
+
+# Function to extract N-gram features
+def extract_ngrams(text, n):
+    tokens = word_tokenize(text)
+    return [' '.join(gram) for gram in ngrams(tokens, n)]
+
+# Extract N-gram features for the training data
+X_train = train_data['Text']
+y_train = train_data['Language']
+
+# Use CountVectorizer to convert text data into a matrix of token counts
+vectorizer = CountVectorizer()
+X_train_count = vectorizer.fit_transform(X_train)
+
+# Train the Naive Bayes classifier
+nb_classifier = MultinomialNB()
+nb_classifier.fit(X_train_count, y_train)
+
+# Train the Decision Tree classifier
+dt_classifier = DecisionTreeClassifier()
+dt_classifier.fit(X_train_count, y_train)
+
+# Train the HMM model for each language
+hmm_models = {}
+for language in languages['Language'].unique():
+    language_data = languages[languages['Language'] == language]
+    hmm_model = hmm.GaussianHMM(n_components=2)  # Use GaussianHMM for faster training
+    hmm_model.fit(vectorizer.transform(language_data['Text']).toarray())
+    hmm_models[language] = hmm_model
+
+# Function to predict languages using HMM and Naive Bayes
+def predict_languages(text):
+    text_count = vectorizer.transform([text])
+    nb_prediction = nb_classifier.predict(text_count)
+    hmm_predictions = {}
+    for language, hmm_model in hmm_models.items():
+        hmm_predictions[language] = hmm_model.score(text_count.toarray())
+    return nb_prediction, hmm_predictions
+
+# Evaluate the model on the testing data
+test_texts = test_data['Text']
+test_languages = test_data['Language']
+predicted_languages = []
+for text in test_texts:
+    nb_prediction, hmm_predictions = predict_languages(text)
+    predicted_language = max(hmm_predictions, key=hmm_predictions.get)
+    predicted_languages.append(predicted_language)
+
+accuracy = accuracy_score(test_languages, predicted_languages)
+print('Accuracy:', accuracy)
+
+"""# New Section
+
+# New Section
+"""
+
+def predict_sentence_languages(text):
+    words = word_tokenize(text)
+    detected_languages = set()
+
+    for word in words:
+        word_count = vectorizer.transform([word])
+        nb_prediction = nb_classifier.predict(word_count)[0]
+        hmm_predictions = {}
+
+        # Get HMM predictions for the word
+        for language, hmm_model in hmm_models.items():
+            hmm_predictions[language] = hmm_model.score(word_count.toarray())
+
+        # Get the HMM prediction with the highest score
+        hmm_prediction = max(hmm_predictions, key=hmm_predictions.get)
+
+        # Add both Naive Bayes and HMM predictions to the detected languages set
+        detected_languages.add(nb_prediction)
+        detected_languages.add(hmm_prediction)
+
+    # Return the unique languages detected in the sentence
+    return list(detected_languages)
+
+# Example input text
+text = input()
+predicted_languages = predict_sentence_languages(text)
+
+# Print the detected languages in the sentence
+print("Detected Languages:", predicted_languages)
+
+def predict_sentence_languages(text, hmm_threshold=-1000):  # Set a reasonable score threshold
+    words = word_tokenize(text)
+    detected_languages = set()
+
+    for word in words:
+        word_count = vectorizer.transform([word])
+        nb_prediction = nb_classifier.predict(word_count)[0]
+        hmm_predictions = {}
+
+        # Get HMM predictions for the word
+        for language, hmm_model in hmm_models.items():
+            score = hmm_model.score(word_count.toarray())
+            if score > hmm_threshold:  # Only consider languages with scores above the threshold
+                hmm_predictions[language] = score
+
+        # Add the Naive Bayes prediction
+        detected_languages.add(nb_prediction)
+
+        # Add the highest scoring HMM prediction if any
+        if hmm_predictions:
+            hmm_prediction = max(hmm_predictions, key=hmm_predictions.get)
+            detected_languages.add(hmm_prediction)
+
+    # Return the unique languages detected in the sentence
+    return list(detected_languages)
+
+# Example input text
+text = input()
+predicted_languages = predict_sentence_languages(text)
+
+# Print the detected languages in the sentence
+print("Detected Languages:", predicted_languages)
